@@ -3,106 +3,107 @@ from pathlib import Path
 import random
 import shutil
 
-BASE_DIR = Path(__file__).parent
-RAW_DIR = BASE_DIR / "raw_images"
-DATASET_DIR = BASE_DIR / "dataset"
+# Project folders
+BASE = Path(__file__).parent
+RAW_IMAGES = BASE / "raw_images"
+DATASET = BASE / "dataset"
 
+# Five object classes
 CLASSES = [
     "apple",
     "cups",
     "oranges",
-    "paper bags",
+    "paper_bags",
     "water_bottle",
 ]
 
-# Dataset split proportions
+# Split proportions
 TRAIN_RATIO = 0.70
 VAL_RATIO = 0.15
 TEST_RATIO = 0.15
 
-# Reproducible random split
-random.seed(42)
-
 # Supported image formats
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
+# Reproducible random shuffle
+random.seed(42)
 
-def main():
-    # Check the proportions
-    assert abs(TRAIN_RATIO + VAL_RATIO + TEST_RATIO - 1.0) < 1e-9
+SPLITS = {
+    "train": TRAIN_RATIO,
+    "val": VAL_RATIO,
+    "test": TEST_RATIO,
+}
 
-    # Check all source folders before changing anything
-    for class_name in CLASSES:
-        class_dir = RAW_DIR / class_name
 
-        if not class_dir.is_dir():
-            raise FileNotFoundError(
-                f"Missing class folder: {class_dir}"
-            )
-
-        images = [
-            p for p in class_dir.iterdir()
-            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-        ]
-
-        if len(images) != 1000:
-            raise ValueError(
-                f"{class_name} has {len(images)} images, expected 1000."
-            )
-
-    # Refuse to overwrite an existing dataset
-    if DATASET_DIR.exists() and any(DATASET_DIR.iterdir()):
-        raise FileExistsError(
-            f"{DATASET_DIR} already contains files. "
-            "Rename or back it up before creating a new split."
+def split_dataset():
+    # Check the raw images folder
+    if not RAW_IMAGES.exists():
+        raise FileNotFoundError(
+            f"Raw images folder not found: {RAW_IMAGES}"
         )
 
-    # Create split folders
-    for split in ("train", "val", "test"):
-        for class_name in CLASSES:
-            (DATASET_DIR / split / class_name).mkdir(
-                parents=True, exist_ok=True
-            )
+    # Remove previous generated splits to avoid duplicate or stale files
+    for split in SPLITS:
+        split_path = DATASET / split
+        if split_path.exists():
+            shutil.rmtree(split_path)
 
-    total_counts = {"train": 0, "val": 0, "test": 0}
+    total_images = 0
 
     for class_name in CLASSES:
+        class_folder = RAW_IMAGES / class_name
+
+        if not class_folder.exists():
+            raise FileNotFoundError(
+                f"Missing class folder: {class_folder}"
+            )
+
         images = [
-            p for p in (RAW_DIR / class_name).iterdir()
-            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            image for image in class_folder.iterdir()
+            if image.is_file()
+            and image.suffix.lower() in IMAGE_EXTENSIONS
         ]
 
-        images.sort()
+        if len(images) != 2000:
+            raise ValueError(
+                f"{class_name}: expected 2000 images, "
+                f"but found {len(images)}"
+            )
+
         random.shuffle(images)
 
-        train_end = int(len(images) * TRAIN_RATIO)
-        val_end = train_end + int(len(images) * VAL_RATIO)
+        # Calculate split sizes
+        train_end = 1400
+        val_end = 1700
 
-        splits = {
+        split_images = {
             "train": images[:train_end],
             "val": images[train_end:val_end],
             "test": images[val_end:],
         }
 
-        print(f"\n{class_name}:")
+        # Copy images into their respective split folders
+        for split_name, selected_images in split_images.items():
+            output_folder = DATASET / split_name / class_name
+            output_folder.mkdir(parents=True, exist_ok=True)
 
-        for split, files in splits.items():
-            destination = DATASET_DIR / split / class_name
+            for image in selected_images:
+                shutil.copy2(image, output_folder / image.name)
 
-            for image_path in files:
-                # Copy originals; do not delete raw images
-                shutil.copy2(image_path, destination / image_path.name)
+            print(
+                f"{class_name} - {split_name}: "
+                f"{len(selected_images)} images"
+            )
 
-            total_counts[split] += len(files)
-            print(f"  {split}: {len(files)} images")
+        total_images += len(images)
 
-    print("\nDataset split completed!")
-    print(f"Training images:   {total_counts['train']}")
-    print(f"Validation images: {total_counts['val']}")
-    print(f"Testing images:    {total_counts['test']}")
-    print(f"Total images:      {sum(total_counts.values())}")
-    print(f"Output folder: {DATASET_DIR}")
+    print("\nDataset splitting completed successfully!")
+    print(f"Total raw images: {total_images}")
+    print("Training images: 7000")
+    print("Validation images: 1500")
+    print("Testing images: 1500")
+    print(f"Output folder: {DATASET}")
 
 
 if __name__ == "__main__":
-    main()
+    split_dataset()

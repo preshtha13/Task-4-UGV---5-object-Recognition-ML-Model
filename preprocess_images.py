@@ -1,126 +1,98 @@
 
 from pathlib import Path
-from PIL import Image, ImageOps
+from PIL import Image
 import numpy as np
 
-# Project and dataset paths
-BASE_DIR = Path(__file__).parent
-DATASET_DIR = BASE_DIR / "dataset"
+# Project directory
+BASE = Path(__file__).parent
+DATASET = BASE / "dataset"
 
-# Class names and numerical labels
+# Five object classes (must match split_dataset.py)
 CLASSES = [
     "apple",
     "cups",
     "oranges",
-    "paper bags",
+    "paper_bags",
     "water_bottle",
 ]
 
-LABELS = {name: index for index, name in enumerate(CLASSES)}
-
-# All images will be resized to 160 x 160 pixels
+# Dataset configuration
 IMAGE_SIZE = (160, 160)
+SPLITS = ["train", "val", "test"]
 
-# Supported image formats
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-
-SPLITS = ("train", "val", "test")
 
 
 def load_and_preprocess(split):
+    """
+    Load images for one split, resize them to 160x160,
+    convert them to RGB, and normalize pixels to 0-1.
+
+    Returns:
+        X: Image array with shape (N, 160, 160, 3)
+        y: Integer class labels with shape (N,)
+    """
+    if split not in SPLITS:
+        raise ValueError(
+            f"Invalid split: {split}. Choose from {SPLITS}"
+        )
+
     images = []
     labels = []
-    class_counts = {name: 0 for name in CLASSES}
-    skipped = 0
 
-    split_dir = DATASET_DIR / split
+    for label, class_name in enumerate(CLASSES):
+        class_folder = DATASET / split / class_name
 
-    if not split_dir.is_dir():
-        raise FileNotFoundError(
-            f"Missing split folder: {split_dir}. "
-            "Run split_dataset.py first."
-        )
-
-    for class_name in CLASSES:
-        class_dir = split_dir / class_name
-
-        if not class_dir.is_dir():
+        if not class_folder.exists():
             raise FileNotFoundError(
-                f"Missing class folder: {class_dir}"
+                f"Missing folder: {class_folder}"
             )
 
-        image_paths = sorted(
-            p for p in class_dir.iterdir()
-            if p.is_file()
-            and p.suffix.lower() in IMAGE_EXTENSIONS
+        files = sorted(
+            file for file in class_folder.iterdir()
+            if file.is_file()
+            and file.suffix.lower() in IMAGE_EXTENSIONS
         )
 
-        for image_path in image_paths:
+        for file in files:
             try:
-                with Image.open(image_path) as img:
-                    # Apply orientation stored in the image metadata
-                    img = ImageOps.exif_transpose(img)
-
-                    # Convert grayscale/RGBA images to RGB
+                with Image.open(file) as img:
                     img = img.convert("RGB")
-
-                    # Resize to the required dimensions
                     img = img.resize(
                         IMAGE_SIZE,
                         Image.Resampling.BILINEAR
                     )
 
-                    # Convert to a NumPy array and normalize to [0, 1]
+                    # Convert to float32 and normalize to 0-1
                     array = np.asarray(
                         img, dtype=np.float32
                     ) / 255.0
 
-                images.append(array)
-                labels.append(LABELS[class_name])
-                class_counts[class_name] += 1
+                    images.append(array)
+                    labels.append(label)
 
             except (OSError, ValueError) as error:
-                skipped += 1
-                print(f"Skipped {image_path}: {error}")
+                print(f"Skipping {file}: {error}")
+
+        print(f"{split} - {class_name}: {len(files)} files found")
 
     if not images:
-        raise ValueError(f"No valid images found in {split_dir}")
+        raise ValueError(
+            f"No valid images found in dataset/{split}"
+        )
 
-    # Shape: (number of images, 160, 160, 3)
-    X = np.stack(images).astype(np.float32)
-
-    # Shape: (number of images,)
+    X = np.stack(images)
     y = np.asarray(labels, dtype=np.int64)
 
-    return X, y, class_counts, skipped
+    print(f"\n{split.upper()} RESULTS")
+    print("Images shape:", X.shape)
+    print("Labels shape:", y.shape)
+    print("Pixel range:", X.min(), "to", X.max())
 
-
-def main():
-    print("IMAGE PREPROCESSING RESULTS")
-
-    for split in SPLITS:
-        X, y, counts, skipped = load_and_preprocess(split)
-
-        print(f"\n{split.upper()} RESULTS")
-        print("Images shape:", X.shape)
-        print("Labels shape:", y.shape)
-        print("Pixel range:", float(X.min()), "to", float(X.max()))
-        print("Skipped images:", skipped)
-
-        for class_name, count in counts.items():
-            print(f"{class_name}: {count} images")
-
-        # Save processed arrays for future model training
-        output_dir = BASE_DIR / "processed_data"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        np.save(output_dir / f"X_{split}.npy", X)
-        np.save(output_dir / f"y_{split}.npy", y)
-
-        print(f"Saved processed {split} arrays.")
-
-    print("\nPreprocessing completed successfully!")
+    return X, y
 
 
 if __name__ == "__main__":
-    main()
+    for split_name in SPLITS:
+        X, y = load_and_preprocess(split_name)
+        print(f"Finished preprocessing {split_name}\n")
