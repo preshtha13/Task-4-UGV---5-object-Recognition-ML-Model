@@ -1,22 +1,62 @@
+
 import tensorflow as tf
+import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 
+tf.random.set_seed(42)
+np.random.seed(42)
 
-tf.random.set_seed(42) 
 BASE = Path(__file__).parent
-DATASET = BASE / "dataset"
+PROCESSED = BASE / "processed_data"
 
-CLASSES = ["apple", "cups", "oranges", "paper bags", "water_bottle"]
+CLASSES = [
+    "apple",
+    "cups",
+    "oranges",
+    "paper_bags",
+    "water_bottle"
+]
 
-trainData = tf.keras.utils.image_dataset_from_directory( DATASET/"train",class_names = CLASSES, image_size=(128, 128), batch_size=30)
+IMAGE_SIZE = (160, 160)
+BATCH_SIZE = 32
+EPOCHS = 30
 
-valData = tf.keras.utils.image_dataset_from_directory(DATASET / "val", class_names =CLASSES, image_size=(128, 128), batch_size=30, shuffle=False)
+# Load preprocessed NumPy arrays
+print("Loading preprocessed images...")
 
+X_train = np.load(PROCESSED / "X_train.npy")
+y_train = np.load(PROCESSED / "y_train.npy")
+
+X_val = np.load(PROCESSED / "X_val.npy")
+y_val = np.load(PROCESSED / "y_val.npy")
+
+print("Training images:", X_train.shape)
+print("Validation images:", X_val.shape)
+
+# Create TensorFlow datasets
+trainData = tf.data.Dataset.from_tensor_slices(
+    (X_train, y_train)
+)
+
+trainData = (
+    trainData
+    .shuffle(len(X_train), seed=42)
+    .batch(BATCH_SIZE)
+    .prefetch(tf.data.AUTOTUNE)
+)
+
+valData = (
+    tf.data.Dataset.from_tensor_slices((X_val, y_val))
+    .batch(BATCH_SIZE)
+    .prefetch(tf.data.AUTOTUNE)
+)
+
+# Build CNN model
 model = tf.keras.Sequential([
-    tf.keras.layers.Input(shape=(128, 128, 3)),
-    tf.keras.layers.Rescaling(1.0 / 255),
+    tf.keras.layers.Input(shape=(160, 160, 3)),
 
+    # Images are already normalized to [0, 1]
     tf.keras.layers.Conv2D(32, 3, activation="relu"),
     tf.keras.layers.MaxPooling2D(),
 
@@ -25,38 +65,57 @@ model = tf.keras.Sequential([
 
     tf.keras.layers.Flatten(),
     tf.keras.layers.Dense(64, activation="relu"),
+    tf.keras.layers.Dropout(0.4),
     tf.keras.layers.Dense(5, activation="softmax")
 ])
 
-model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+model.compile(
+    optimizer="adam",
+    loss="sparse_categorical_crossentropy",
+    metrics=["accuracy"]
+)
 
-history = model.fit(trainData, validation_data=valData, epochs=20)
+# Stop when validation loss stops improving
+early_stopping = tf.keras.callbacks.EarlyStopping(
+    monitor="val_loss",
+    patience=5,
+    restore_best_weights=True
+)
 
+# Train the model
+history = model.fit(
+    trainData,
+    validation_data=valData,
+    epochs=EPOCHS,
+    callbacks=[early_stopping]
+)
+
+# Plot accuracy
+plt.figure()
 plt.plot(history.history["accuracy"], label="Training Accuracy")
 plt.plot(history.history["val_accuracy"], label="Validation Accuracy")
-
 plt.title("Training vs Validation Accuracy")
 plt.xlabel("Epochs")
 plt.ylabel("Accuracy")
 plt.legend()
 plt.grid(True)
+plt.savefig(BASE / "accuracy_graph.png", dpi=300)
+plt.close()
 
-plt.savefig("accuracy_graph.png", dpi=300)
-plt.show()
-
+# Plot loss
+plt.figure()
 plt.plot(history.history["loss"], label="Training Loss")
 plt.plot(history.history["val_loss"], label="Validation Loss")
-
 plt.title("Training vs Validation Loss")
 plt.xlabel("Epochs")
 plt.ylabel("Loss")
 plt.legend()
 plt.grid(True)
+plt.savefig(BASE / "loss_graph.png", dpi=300)
+plt.close()
 
-plt.savefig("loss_graph.png", dpi=300)
-plt.show()
-
-model.save("object_model.keras")
+# Save trained model and class names
+model.save(BASE / "object_model.keras")
 
 with open(BASE / "class_names.txt", "w") as file:
     file.write("\n".join(CLASSES))
