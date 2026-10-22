@@ -54,6 +54,8 @@ def load_and_preprocess(split):
             and file.suffix.lower() in IMAGE_EXTENSIONS
         )
 
+        valid_count = 0
+
         for file in files:
             try:
                 with Image.open(file) as img:
@@ -70,11 +72,15 @@ def load_and_preprocess(split):
 
                     images.append(array)
                     labels.append(label)
+                    valid_count += 1
 
             except (OSError, ValueError) as error:
                 print(f"Skipping {file}: {error}")
 
-        print(f"{split} - {class_name}: {len(files)} files found")
+        print(
+            f"{split} - {class_name}: "
+            f"{valid_count} images processed"
+        )
 
     if not images:
         raise ValueError(
@@ -93,6 +99,18 @@ def load_and_preprocess(split):
 
 
 if __name__ == "__main__":
+    # Create folder to store processed data
+    PROCESSED = BASE / "processed_data"
+    PROCESSED.mkdir(parents=True, exist_ok=True)
+
+    # Process and save training, validation, and testing data
     for split_name in SPLITS:
         X, y = load_and_preprocess(split_name)
-        print(f"Finished preprocessing {split_name}\n")
+
+        # Save processed images and their labels
+        np.save(PROCESSED / f"X_{split_name}.npy", X)
+        np.save(PROCESSED / f"y_{split_name}.npy", y)
+
+        print(f"Saved {split_name} images and labels\n")
+
+    print("All preprocessing completed!")
